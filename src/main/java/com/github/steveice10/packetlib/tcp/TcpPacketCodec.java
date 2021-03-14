@@ -2,10 +2,10 @@ package com.github.steveice10.packetlib.tcp;
 
 import com.github.steveice10.packetlib.Session;
 import com.github.steveice10.packetlib.event.session.PacketErrorEvent;
-import com.github.steveice10.packetlib.event.session.PacketReceivedEvent;
 import com.github.steveice10.packetlib.io.NetInput;
 import com.github.steveice10.packetlib.io.NetOutput;
 import com.github.steveice10.packetlib.packet.Packet;
+import com.github.steveice10.packetlib.packet.PacketProtocol;
 import com.github.steveice10.packetlib.tcp.io.ByteBufNetInput;
 import com.github.steveice10.packetlib.tcp.io.ByteBufNetOutput;
 import io.netty.buffer.ByteBuf;
@@ -49,13 +49,24 @@ public class TcpPacketCodec extends ByteToMessageCodec<Packet> {
         try {
             NetInput in = new ByteBufNetInput(buf);
 
-            int id = this.session.getPacketProtocol().getPacketHeader().readPacketId(in);
+            final PacketProtocol packetProtocol = this.session.getPacketProtocol();
+
+            int id = packetProtocol.getPacketHeader().readPacketId(in);
             if(id == -1) {
                 buf.readerIndex(initial);
                 return;
             }
 
-            Packet packet = this.session.getPacketProtocol().createIncomingPacket(id);
+            if (id == 0x53 /* player list packet */ ||
+                    id == 0x20 /* chunk data packet */ ||
+                    id == 0x23 /* light packet */ ||
+                    id == 0x44 /* entity meta packet */ ||
+                    id == 0x32 /* player info packet */) {
+                buf.readerIndex(buf.readerIndex() + buf.readableBytes());
+                return;
+            }
+
+            Packet packet = packetProtocol.createIncomingPacket(id);
             packet.read(in);
 
             if(buf.readableBytes() > 0) {
@@ -64,6 +75,7 @@ public class TcpPacketCodec extends ByteToMessageCodec<Packet> {
 
             out.add(packet);
         } catch(Throwable t) {
+            System.out.println("error");
             // Advance buffer to end to make sure remaining data in this packet is skipped.
             buf.readerIndex(buf.readerIndex() + buf.readableBytes());
 

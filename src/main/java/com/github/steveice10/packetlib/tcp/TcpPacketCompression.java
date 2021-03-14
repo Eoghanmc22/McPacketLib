@@ -17,7 +17,7 @@ public class TcpPacketCompression extends ByteToMessageCodec<ByteBuf> {
     private static final int MAX_COMPRESSED_SIZE = 2097152;
 
     private Session session;
-    private Deflater deflater = new Deflater();
+    private Deflater deflater = new Deflater(1);
     private Inflater inflater = new Inflater();
     private byte buf[] = new byte[8192];
 

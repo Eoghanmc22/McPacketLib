@@ -215,12 +215,11 @@ public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> imp
             return;
         }
 
-        PacketSendingEvent sendingEvent = new PacketSendingEvent(this, packet);
-        this.callEvent(sendingEvent);
+        //this.callEvent(sendingEvent);
 
-        if(!sendingEvent.isCancelled()) {
-            final Packet toSend = sendingEvent.getPacket();
-            this.channel.writeAndFlush(toSend).addListener(new ChannelFutureListener() {
+        //if(!sendingEvent.isCancelled()) {
+            //final Packet toSend = sendingEvent.getPacket();
+            channel.writeAndFlush(packet, channel.voidPromise());/*.addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if(future.isSuccess()) {
@@ -230,7 +229,8 @@ public abstract class TcpSession extends SimpleChannelInboundHandler<Packet> imp
                     }
                 }
             });
-        }
+        }*/
+        callEvent(new PacketSentEvent(TcpSession.this, packet));
     }
 
     @Override

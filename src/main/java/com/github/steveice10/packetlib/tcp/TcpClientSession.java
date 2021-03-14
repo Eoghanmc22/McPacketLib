@@ -6,14 +6,15 @@ import com.github.steveice10.packetlib.ProxyInfo;
 import com.github.steveice10.packetlib.packet.PacketProtocol;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.AddressedEnvelope;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollSocketChannel;
+import io.netty.channel.kqueue.KQueue;
+import io.netty.channel.kqueue.KQueueEventLoopGroup;
+import io.netty.channel.kqueue.KQueueSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.dns.DefaultDnsQuestion;
@@ -25,6 +26,9 @@ import io.netty.handler.codec.dns.DnsSection;
 import io.netty.handler.proxy.HttpProxyHandler;
 import io.netty.handler.proxy.Socks4ProxyHandler;
 import io.netty.handler.proxy.Socks5ProxyHandler;
+import io.netty.incubator.channel.uring.IOUring;
+import io.netty.incubator.channel.uring.IOUringEventLoopGroup;
+import io.netty.incubator.channel.uring.IOUringSocketChannel;
 import io.netty.resolver.dns.DnsNameResolver;
 import io.netty.resolver.dns.DnsNameResolverBuilder;
 
@@ -34,7 +38,36 @@ public class TcpClientSession extends TcpSession {
     private Client client;
     private ProxyInfo proxy;
 
-    private EventLoopGroup group;
+    private static EventLoopGroup group;
+    private static Class<? extends SocketChannel> channel;
+
+    static {
+        if (IOUring.isAvailable()) {
+            group = new IOUringEventLoopGroup();
+
+            channel = IOUringSocketChannel.class;
+
+            System.out.println("Using NIO");
+        } else if (Epoll.isAvailable()) {
+            group = new EpollEventLoopGroup();
+
+            channel = EpollSocketChannel.class;
+
+            System.out.println("Using NIO");
+        } else if (KQueue.isAvailable()) {
+            group = new KQueueEventLoopGroup();
+
+            channel = KQueueSocketChannel.class;
+
+            System.out.println("Using NIO");
+        } else {
+            group = new NioEventLoopGroup();
+
+            channel = NioSocketChannel.class;
+
+            System.out.println("Using NIO");
+        }
+    }
 
     public TcpClientSession(String host, int port, PacketProtocol protocol, Client client, ProxyInfo proxy) {
         super(host, port, protocol);
@@ -46,15 +79,12 @@ public class TcpClientSession extends TcpSession {
     public void connect(boolean wait) {
         if(this.disconnected) {
             throw new IllegalStateException("Session has already been disconnected.");
-        } else if(this.group != null) {
-            return;
         }
 
         try {
-            this.group = new NioEventLoopGroup();
 
             final Bootstrap bootstrap = new Bootstrap();
-            bootstrap.channel(NioSocketChannel.class);
+            bootstrap.channel(channel);
             bootstrap.handler(new ChannelInitializer<Channel>() {
                 @Override
                 public void initChannel(Channel channel) throws Exception {
@@ -104,35 +134,20 @@ public class TcpClientSession extends TcpSession {
                     pipeline.addLast("codec", new TcpPacketCodec(TcpClientSession.this));
                     pipeline.addLast("manager", TcpClientSession.this);
                 }
-            }).group(this.group).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
+            }).group(group).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, getConnectTimeout() * 1000);
 
-            Runnable connectTask = new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        resolveAddress();
-                        bootstrap.remoteAddress(getHost(), getPort());
+            try {
+                //resolveAddress();
+                bootstrap.remoteAddress(getHost(), getPort());
 
-                        ChannelFuture future = bootstrap.connect().sync();
-                        if(future.isSuccess()) {
-                            while(!isConnected() && !disconnected) {
-                                try {
-                                    Thread.sleep(5);
-                                } catch(InterruptedException e) {
-                                }
-                            }
-                        }
-                    } catch(Throwable t) {
-                        exceptionCaught(null, t);
-                    }
+                ChannelFuture future = bootstrap.connect();
+                if (wait) {
+                    future.sync();
                 }
-            };
-
-            if(wait) {
-                connectTask.run();
-            } else {
-                new Thread(connectTask).start();
+            } catch(Throwable t) {
+                exceptionCaught(null, t);
             }
+
         } catch(Throwable t) {
             exceptionCaught(null, t);
         }
@@ -191,9 +206,5 @@ public class TcpClientSession extends TcpSession {
     @Override
     public void disconnect(String reason, Throwable cause) {
         super.disconnect(reason, cause);
-        if(this.group != null) {
-            this.group.shutdownGracefully();
-            this.group = null;
-        }
     }
 }

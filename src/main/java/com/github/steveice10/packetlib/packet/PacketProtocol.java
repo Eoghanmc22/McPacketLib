@@ -8,13 +8,14 @@ import com.github.steveice10.packetlib.crypt.PacketEncryption;
 import java.lang.reflect.Constructor;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * A protocol for packet sending and receiving.
  * All implementations must have a no-params constructor for server protocol creation.
  */
 public abstract class PacketProtocol {
-    private final Map<Integer, Class<? extends Packet>> incoming = new HashMap<>();
+    private final Map<Integer, Supplier<Packet>> incoming = new HashMap<>();
     private final Map<Class<? extends Packet>, Integer> outgoing = new HashMap<>();
 
     private final Map<Integer, Class<? extends Packet>> outgoingClasses = new HashMap<>();
@@ -72,8 +73,8 @@ public abstract class PacketProtocol {
      * @param packet Packet to register.
      * @throws IllegalArgumentException If the packet fails a test creation when being registered as incoming.
      */
-    public final void register(int id, Class<? extends Packet> packet) {
-        this.registerIncoming(id, packet);
+    public final void register(int id, Class<? extends Packet> packet, Supplier<Packet> packetS) {
+        this.registerIncoming(id, packetS);
         this.registerOutgoing(id, packet);
     }
 
@@ -84,7 +85,7 @@ public abstract class PacketProtocol {
      * @param packet Packet to register.
      * @throws IllegalArgumentException If the packet fails a test creation.
      */
-    public final void registerIncoming(int id, Class<? extends Packet> packet) {
+    public final void registerIncoming(int id, Supplier<Packet> packet) {
         this.incoming.put(id, packet);
         try {
             this.createIncomingPacket(id);
@@ -114,23 +115,7 @@ public abstract class PacketProtocol {
      * @throws IllegalStateException    If the packet does not have a no-params constructor or cannot be instantiated.
      */
     public final Packet createIncomingPacket(int id) {
-        Class<? extends Packet> packet = this.incoming.get(id);
-        if (packet == null) {
-            throw new IllegalArgumentException("Invalid packet id: " + id);
-        }
-
-        try {
-            Constructor<? extends Packet> constructor = packet.getDeclaredConstructor();
-            if(!constructor.isAccessible()) {
-                constructor.setAccessible(true);
-            }
-
-            return constructor.newInstance();
-        } catch(NoSuchMethodError e) {
-            throw new IllegalStateException("Packet \"" + id + ", " + packet.getName() + "\" does not have a no-params constructor for instantiation.");
-        } catch(Exception e) {
-            throw new IllegalStateException("Failed to instantiate packet \"" + id + ", " + packet.getName() + "\".", e);
-        }
+        return incoming.get(id).get();
     }
 
     /**
